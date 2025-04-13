@@ -1,3 +1,5 @@
+# COMMAND ----------
+
 # notebooks/raw_to_datahub.py
 
 import sys
@@ -16,7 +18,7 @@ from datetime import date
 
 spark = SparkSession.builder.getOrCreate()
 
-log_info("Iniciando proceso de migración de RAW a DataHub")
+log_info("Starting migration process from RAW to DataHub")
 
 dbutils.widgets.text("sourceid", "")
 dbutils.widgets.text("assetid", "")
@@ -28,74 +30,85 @@ asset_id = dbutils.widgets.get("assetid")
 asset_name = dbutils.widgets.get("assetname")
 execution_date = dbutils.widgets.get("execution_date", date.today().strftime("%Y/%m/%d"))
 
-log_info(f"Procesando asset: {asset_name} (ID: {asset_id}) de source: {source_id}")
-log_info(f"Fecha de ejecución: {execution_date}")
+log_info(f"Processing asset: {asset_name} (ID: {asset_id}) from source: {source_id}")
+log_info(f"Execution date: {execution_date}")
 
-# Leer metadata de columnas
-log_info("Cargando metadata de columnas del asset")
+# COMMAND ----------
+
+# Read column metadata
+log_info("Loading asset column metadata")
 df_columns = load_metadata(spark, JDBC_URL, JDBC_DRIVER, "metadata.assetcolumns")
 schema = df_columns.filter(f"assetid = '{asset_id}'").select("columnname", "ispk").collect()
 pk_cols = [row["columnname"] for row in schema if row["ispk"]]
 
-log_info(f"Columnas PK identificadas: {pk_cols}")
+log_info(f"PK columns identified: {pk_cols}")
 
-# Rutas
+# COMMAND ----------
+
+# Paths
 parquet_path = f"{RAW_BASE_PATH}/{source_id}/{asset_name}/ingestion_date={execution_date}/"
 delta_path = f"{SILVER_BASE_PATH}/{source_id}/{asset_name}/"
 
-log_info(f"Ruta origen (RAW): {parquet_path}")
-log_info(f"Ruta destino (DataHub): {delta_path}")
+log_info(f"Source path (RAW): {parquet_path}")
+log_info(f"Target path (DataHub): {delta_path}")
 
-# Leer Parquet
-log_info("Leyendo datos desde capa RAW (Parquet)")
+# COMMAND ----------
+
+# Read Parquet
+log_info("Reading data from RAW layer (Parquet)")
 try:
     df = spark.read.parquet(parquet_path)
-    log_info(f"Datos leídos correctamente. Número de registros: {df.count()}")
+    log_info(f"Data read successfully. Number of records: {df.count()}")
 except Exception as e:
-    log_error(f"Error al leer parquet: {str(e)}")
+    log_error(f"Error reading parquet: {str(e)}")
     raise
 
-# Validación de columnas
+# COMMAND ----------
+
+# Column validation
 missing = [col["columnname"] for col in schema if col["columnname"] not in df.columns]
 if missing:
-    log_error(f"Columnas faltantes en el dataset: {missing}")
-    raise Exception(f"[ERROR] Columnas faltantes: {missing}")
+    log_error(f"Missing columns in dataset: {missing}")
+    raise Exception(f"[ERROR] Missing columns: {missing}")
 else:
-    log_info("Validación de columnas completada correctamente")
+    log_info("Column validation completed successfully")
+
+# COMMAND ----------
 
 # SCD2
 if pk_cols:
-    log_info("Aplicando tratamiento SCD Tipo 2")
+    log_info("Applying SCD Type 2 treatment")
     df = df.dropDuplicates(pk_cols)
-    log_info(f"Eliminados duplicados por PK. Registros restantes: {df.count()}")
+    log_info(f"Duplicates removed by PK. Remaining records: {df.count()}")
 
     df = prepare_scd2_columns(df, execution_date)
-    log_info("Columnas SCD2 añadidas al dataframe")
+    log_info("SCD2 columns added to dataframe")
 
     from delta.tables import DeltaTable
 
     if DeltaTable.isDeltaTable(spark, delta_path):
-        log_info("Tabla Delta ya existe. Ejecutando merge SCD2")
+        log_info("Delta table already exists. Executing SCD2 merge")
         apply_scd2_merge(spark, df, delta_path, pk_cols)
-        log_info("Merge SCD2 completado exitosamente")
+        log_info("SCD2 merge completed successfully")
     else:
-        log_info("Tabla Delta no existe. Creando nueva tabla")
+        log_info("Delta table doesn't exist. Creating new table")
         df.write.format("delta").partitionBy("execution_date").mode("overwrite").save(delta_path)
-        log_info("Tabla Delta creada correctamente")
+        log_info("Delta table created successfully")
 else:
-    log_warning("No se encontraron columnas PK. Realizando sobrescritura completa")
+    log_warning("No PK columns found. Performing full overwrite")
     df.write.format("delta").partitionBy("execution_date").mode("overwrite").save(delta_path)
-    log_info("Datos escritos correctamente en formato Delta")
+    log_info("Data written successfully in Delta format")
 
-# Optimización
-log_info("Iniciando optimización de tabla Delta")
+# COMMAND ----------
+
+# Optimization
+log_info("Starting Delta table optimization")
 try:
     spark.sql(f"OPTIMIZE delta.`{delta_path}`")
-    log_info("Optimización completada")
+    log_info("Optimization completed")
     spark.sql(f"VACUUM delta.`{delta_path}` RETAIN 168 HOURS")
-    log_info("Vacuum completado (retención: 168 horas)")
+    log_info("Vacuum completed (retention: 168 hours)")
 except Exception as e:
-    log_warning(f"Error durante la optimización: {str(e)}")
+    log_warning(f"Error during optimization: {str(e)}")
 
-log_info(f"Proceso completado. Datos actualizados en capa DataHub: {delta_path}")
-log_info(f"[OK] Datos actualizados en capa DataHub: {delta_path}")
+log_info(f"Process completed. Data updated in DataHub layer: {delta_path}")

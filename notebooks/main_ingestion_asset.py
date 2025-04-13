@@ -1,3 +1,5 @@
+# COMMAND ----------
+
 # notebooks/main_ingestion_asset.py
 
 import sys
@@ -20,7 +22,7 @@ from datetime import date
 
 spark = SparkSession.builder.getOrCreate()
 
-log_info("Iniciando proceso de ingestión de asset")
+log_info("Starting asset ingestion process")
 
 dbutils.widgets.text("sourceid", "")
 dbutils.widgets.text("assetid", "")
@@ -31,30 +33,32 @@ asset_id = dbutils.widgets.get("assetid")
 use_mock = dbutils.widgets.get("use_mock", "true")
 today = date.today().strftime("%Y/%m/%d")
 
-log_info(f"Parámetros recibidos: source_id={source_id}, asset_id={asset_id}, use_mock={use_mock}")
-log_info(f"Fecha de ejecución: {today}")
+log_info(f"Parameters received: source_id={source_id}, asset_id={asset_id}, use_mock={use_mock}")
+log_info(f"Execution date: {today}")
 
-# Leer metadata
-log_info("Cargando metadata de sources y assets")
+# COMMAND ----------
+
+# Read metadata
+log_info("Loading sources and assets metadata")
 try:
     df_sources = load_metadata(spark, JDBC_URL, JDBC_DRIVER, "metadata.source")
     df_assets = load_metadata(spark, JDBC_URL, JDBC_DRIVER, "metadata.asset")
 
-    log_info(f"Obteniendo información para source: {source_id}")
+    log_info(f"Getting information for source: {source_id}")
     source = get_source_info(df_sources, source_id)
     if not source:
-        log_error(f"No se encontró información para el source: {source_id}")
-        raise Exception(f"Source no encontrado: {source_id}")
+        log_error(f"Information for source {source_id} not found")
+        raise Exception(f"Source not found: {source_id}")
 
-    log_info(f"Obteniendo información para asset: {asset_id}")
+    log_info(f"Getting information for asset: {asset_id}")
     asset = get_source_info(df_assets, asset_id)
     if not asset:
-        log_error(f"No se encontró información para el asset: {asset_id}")
-        raise Exception(f"Asset no encontrado: {asset_id}")
+        log_error(f"Information for asset {asset_id} not found")
+        raise Exception(f"Asset not found: {asset_id}")
 
-    log_info(f"Metadata cargada correctamente")
+    log_info(f"Metadata loaded successfully")
 except Exception as e:
-    log_error(f"Error al cargar metadata: {str(e)}")
+    log_error(f"Error loading metadata: {str(e)}")
     raise
 
 connector = source["connectorstring"]
@@ -64,62 +68,67 @@ password = source.get("password")
 query = asset["query"]
 asset_name = asset["assetname"]
 
-log_info(f"Iniciando extracción para asset: {asset_name} desde {type_}")
-log_info(f"Conector: {connector}")
+log_info(f"Starting extraction for asset: {asset_name} from {type_}")
+log_info(f"Connector: {connector}")
 
-# Selector de función de conexión
+# COMMAND ----------
+
+# Connector function selector
 try:
     if type_ in ["sqlserver", "postgresql", "mysql", "oracle", "synapse", "snowflake"]:
-        log_info(f"Conectando a base de datos {type_}")
+        log_info(f"Connecting to {type_} database")
         df = connect_jdbc(spark, connector, query)
     elif type_ == "delta":
-        log_info("Conectando a origen Delta")
+        log_info("Connecting to Delta source")
         df = connect_delta(spark, query, is_catalog=True)
     elif type_ == "parquet":
-        log_info("Conectando a origen Parquet")
+        log_info("Connecting to Parquet source")
         df = connect_parquet(spark, query)
     elif type_ == "csv":
-        log_info("Conectando a origen CSV")
+        log_info("Connecting to CSV source")
         df = connect_csv(spark, query)
     elif type_ == "json":
-        log_info("Conectando a origen JSON")
+        log_info("Connecting to JSON source")
         df = connect_json(spark, query)
     elif type_ == "rest_api":
-        log_info("Conectando a API REST")
+        log_info("Connecting to REST API")
         df = connect_rest_api(spark, connector)
     elif type_ == "graphql_api":
-        log_info("Conectando a API GraphQL")
+        log_info("Connecting to GraphQL API")
         df = connect_graphql_api(spark, connector, query)
     elif type_ == "olap_cube":
         if use_mock == "true":
-            log_info("Conectando a OLAP XMLA (modo mock)")
+            log_info("Connecting to OLAP XMLA (mock mode)")
             df = connect_olap_xmla_mock(spark, connector, query, username, password)
         else:
-            log_info("Conectando a OLAP XMLA")
+            log_info("Connecting to OLAP XMLA")
             df = connect_olap_xmla(spark, connector, query, username, password)
     else:
-        log_error(f"Tipo de conector no soportado: {type_}")
-        raise Exception(f"Tipo de conector no soportado: {type_}")
+        log_error(f"Unsupported connector type: {type_}")
+        raise Exception(f"Unsupported connector type: {type_}")
 
     row_count = df.count()
-    log_info(f"Datos extraídos correctamente. Número de registros: {row_count}")
+    log_info(f"Data extracted successfully. Number of records: {row_count}")
 except Exception as e:
-    log_error(f"Error al extraer datos desde {type_}: {str(e)}")
+    log_error(f"Error extracting data from {type_}: {str(e)}")
     raise
 
-# Escritura de datos
+# COMMAND ----------
+
+# Data writing
 output_path = f"{RAW_BASE_PATH}/{source_id}/{asset_name}/ingestion_date={today}/"
-log_info(f"Preparando escritura de datos en: {output_path}")
+log_info(f"Preparing data writing to: {output_path}")
 
 try:
-    log_info("Añadiendo columna de fecha de ingesta")
+    log_info("Adding ingestion date column")
     df = df.withColumn("ingestion_date", lit(today))
 
-    log_info("Iniciando escritura de datos en formato Parquet")
+    log_info("Starting data writing in Parquet format")
     df.write.mode("overwrite").partitionBy("ingestion_date").parquet(output_path)
-    log_info(f"Datos escritos correctamente en: {output_path}")
+    log_info(f"Data written successfully to: {output_path}")
 except Exception as e:
-    log_error(f"Error al escribir datos: {str(e)}")
+    log_error(f"Error writing data: {str(e)}")
     raise
 
-log_info(f"Proceso de ingestión completado exitosamente para asset: {asset_name}")
+log_info(f"Ingestion process completed successfully for asset: {asset_name}")
+print(f"[OK] {asset_name} data written to: {output_path}")
