@@ -2,6 +2,8 @@
 
 import concurrent.futures
 import sys
+import getpass
+user = getpass.getuser()
 sys.path.append("/Workspace/Repos/<tu_usuario>/metadata-ingestion-engine")
 
 from metadata.reader import load_metadata, get_asset_list
@@ -9,6 +11,10 @@ from config.settings import JDBC_URL, JDBC_DRIVER
 from pyspark.sql import SparkSession
 
 spark = SparkSession.builder.getOrCreate()
+
+dbutils.widgets.text("sourceid", "")
+dbutils.widgets.text("max_threads", "")
+dbutils.widgets.text("use_mock", "true")
 
 source_id = dbutils.widgets.get("sourceid")
 max_threads = int(dbutils.widgets.get("max_threads", "4"))

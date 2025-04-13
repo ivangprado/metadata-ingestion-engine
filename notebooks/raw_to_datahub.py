@@ -1,6 +1,8 @@
 # notebooks/raw_to_datahub.py
 
 import sys
+import getpass
+user = getpass.getuser()
 sys.path.append("/Workspace/Repos/<tu_usuario>/metadata-ingestion-engine")
 
 from metadata.reader import load_metadata
@@ -11,6 +13,11 @@ from pyspark.sql.functions import col
 from datetime import date
 
 spark = SparkSession.builder.getOrCreate()
+
+dbutils.widgets.text("sourceid", "")
+dbutils.widgets.text("assetid", "")
+dbutils.widgets.text("assetname", "")
+dbutils.widgets.text("execution_date", "")
 
 source_id = dbutils.widgets.get("sourceid")
 asset_id = dbutils.widgets.get("assetid")

@@ -1,6 +1,8 @@
 # notebooks/main_ingestion_asset.py
 
 import sys
+import getpass
+user = getpass.getuser()
 sys.path.append("/Workspace/Repos/ivangprado/metadata-ingestion-engine")
 
 from connectors import (
@@ -15,6 +17,10 @@ from pyspark.sql.functions import lit
 from datetime import date
 
 spark = SparkSession.builder.getOrCreate()
+
+dbutils.widgets.text("sourceid", "")
+dbutils.widgets.text("assetid", "")
+dbutils.widgets.text("use_mock", "true")
 
 source_id = dbutils.widgets.get("sourceid")
 asset_id = dbutils.widgets.get("assetid")
